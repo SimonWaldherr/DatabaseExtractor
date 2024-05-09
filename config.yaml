@@ -1,0 +1,7 @@
+server: "mssql.example.tld"
+user: "john.doe"
+password: "$ecret£assw⌀rd"
+databases:
+  - "Sales"
+  - "Purchases"
+  - "Customers"
