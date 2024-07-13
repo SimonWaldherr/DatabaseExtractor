@@ -7,7 +7,7 @@ import (
 	_ "github.com/denisenkom/go-mssqldb"
 )
 
-// TableInfo represents a table
+// TableInfo represents a table or view
 type TableInfo struct {
 	Database     string
 	Schema       string
@@ -18,14 +18,14 @@ type TableInfo struct {
 	Type         string
 }
 
-// Dependency represents a dependency of a table
+// Dependency represents a dependency of a table or view
 type Dependency struct {
 	ReferencedDB     string
 	ReferencedSchema string
 	ReferencedTable  string
 }
 
-// Column represents a column in a table
+// Column represents a column in a table or view
 type Column struct {
 	Name           string
 	Type_Name      string
@@ -37,7 +37,7 @@ type Column struct {
 	Is_Identity    bool
 }
 
-// a map with the database name as key and a list of tables as value
+// Database represents a map with the database name as key and a list of tables/views as value
 type Database map[string][]TableInfo
 
 // sqlQueries contains the SQL queries used to query the database

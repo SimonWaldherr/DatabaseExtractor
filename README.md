@@ -1,12 +1,12 @@
 # Database Extractor
 ## a Database Structure and Query Export Tool
 
-This is a Go application designed to query tables, views, and their dependencies from a Microsoft SQL Server database and export the retrieved structure data into various formats such as JSON, XML, and markdown files.
+This is a Go application designed to query tables, views, and their dependencies from a Microsoft SQL Server database and export the retrieved structure data into various formats such as JSON, XML, markdown files, and Golang structs.
 
 ## Features
 
 - Query tables and views from one or more specified databases.
-- Export the queried data to JSON, XML, or markdown files.
+- Export the queried data to JSON, XML, markdown files, or Go structs.
 - Handle dependencies between tables and views.
 
 ## Prerequisites

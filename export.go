@@ -21,7 +21,7 @@ func createDirectory(dir string) {
 	}
 }
 
-// writeSQLFile writes the SQL file and info file for a given view.
+// writeSQLFile writes the SQL file, info file, and Go struct file for a given view.
 func writeSQLFile(dir string, view TableInfo) {
 	var err error
 	if len(view.Definition) > 10 {
@@ -46,8 +46,13 @@ func writeSQLFile(dir string, view TableInfo) {
 				fmt.Println("Error writing info file:", err)
 			}
 		}
-	} else {
-		fmt.Println("query for", dir+view.TableName, "too small")
+	}
+	structFile := generateGoStruct(view)
+	if len(structFile) > 10 {
+		err = os.WriteFile(dir+view.TableName+".go", []byte(structFile), 0644)
+		if err != nil {
+			fmt.Println("Error writing Go struct file:", err)
+		}
 	}
 }
 
@@ -110,6 +115,38 @@ func generateTableInfoFile(view TableInfo) string {
 	infofile := "# Infodatei zur Tabelle " + strings.ToLower(view.Database+"."+view.Schema) + "." + view.TableName + "\n\n"
 	infofile += "## Tabellenstruktur\n\n" + generateTableStructTable(view) + view.Definition
 	return infofile
+}
+
+// generateGoStruct generates a Go struct for the given table or view.
+func generateGoStruct(view TableInfo) string {
+	structDef := "package main\n\n"
+	structDef += fmt.Sprintf("// %s represents a database table/view structure\n", view.TableName)
+	structDef += fmt.Sprintf("type %s struct {\n", view.TableName)
+
+	for _, col := range view.Columns {
+		structDef += fmt.Sprintf("\t%s %s `json:\"%s\"`\n", col.Name, mapSQLTypeToGoType(col.Type_Name), col.Name)
+	}
+	structDef += "}\n"
+	return structDef
+}
+
+// mapSQLTypeToGoType maps SQL types to Go types.
+func mapSQLTypeToGoType(sqlType string) string {
+	typeMap := map[string]string{
+		"int":        "int",
+		"varchar":    "string",
+		"nvarchar":   "string",
+		"datetime":   "time.Time",
+		"bit":        "bool",
+		"float":      "float64",
+		"decimal":    "float64",
+		// Add more SQL to Go type mappings as needed
+	}
+
+	if goType, found := typeMap[sqlType]; found {
+		return goType
+	}
+	return "interface{}"
 }
 
 // exportToFiles exports the given list of TableInfo to files.

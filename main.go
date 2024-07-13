@@ -103,11 +103,3 @@ func writeToFile(filename string, data interface{}, marshalFunc func(interface{}
 	}
 	return os.WriteFile(filename, bytes, 0644)
 }
-
-/*
-func marshalToSQL(data interface{}) ([]byte, error) {
-	// Implement the logic to convert data to SQL format
-	// Placeholder function, needs actual implementation
-	return []byte("SQL DATA"), nil
-}
-*/
