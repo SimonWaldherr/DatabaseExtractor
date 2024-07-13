@@ -3,8 +3,11 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"log"
+	"sync"
 
 	_ "github.com/denisenkom/go-mssqldb"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // TableInfo represents a table or view
@@ -48,11 +51,11 @@ var sqlQueries = map[string]string{
 	"queryTableDependencies": "SELECT ISNULL(referenced_database_name, '') as referenced_database_name, ISNULL(referenced_schema_name,'') as referenced_schema_name, ISNULL(referenced_entity_name,'') as referenced_entity_name FROM [%s].sys.sql_expression_dependencies WHERE referencing_id = OBJECT_ID(N'[%s].[%s].[%s]')",
 }
 
-var mysqlQueries = map[string]string{
-	"queryTables":            "SELECT TABLE_CATALOG, TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES UNION ALL SELECT ROUTINE_CATALOG, ROUTINE_SCHEMA, ROUTINE_NAME, ROUTINE_TYPE FROM information_schema.ROUTINES",
-	"queryColumns":           "USE %s; SELECT COLUMN_NAME, DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, COLLATION_NAME, IS_NULLABLE, COLUMN_KEY FROM information_schema.columns WHERE TABLE_SCHEMA = '%s' AND TABLE_NAME = '%s'",
-	"queryViewDefinition":    "USE %s; SHOW CREATE VIEW `%s`.`%s`",
-	"queryTableDependencies": "SELECT REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = '%s' AND TABLE_NAME = '%s' AND REFERENCED_TABLE_NAME IS NOT NULL",
+var sqliteQueries = map[string]string{
+	"queryTables":            "SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view')",
+	"queryColumns":           "PRAGMA table_info(%s)",
+	"queryViewDefinition":    "SELECT sql FROM sqlite_master WHERE name='%s' AND type='view'",
+	"queryTableDependencies": "SELECT '' as referenced_database_name, '' as referenced_schema_name, '' as referenced_entity_name", // SQLite doesn't support this
 }
 
 // typeMap maps the type names from the database to the type names used in the information file
@@ -65,29 +68,71 @@ var typeMap = map[string]string{
 
 // queryDatabases queries the given databases and returns a list of TableInfo
 func queryDatabases(config Config) ([]TableInfo, error) {
-	connString := fmt.Sprintf("server=%s;user id=%s;password=%s;port=1433", config.Server, config.User, config.Password)
-	db, err := sql.Open("mssql", connString)
+	var wg sync.WaitGroup
+	results := make(chan TableInfo)
+	errors := make(chan error)
+	done := make(chan bool)
+
+	for _, database := range config.Databases {
+		wg.Add(1)
+		go func(dbName string) {
+			defer wg.Done()
+			tables, err := queryTables(config.Server, dbName, config)
+			if err != nil {
+				errors <- err
+				return
+			}
+			for _, table := range tables {
+				results <- table
+			}
+		}(database)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+		close(errors)
+		done <- true
+	}()
+
+	var tableInfos []TableInfo
+	var errs []error
+
+	for {
+		select {
+		case table := <-results:
+			tableInfos = append(tableInfos, table)
+		case err := <-errors:
+			errs = append(errs, err)
+		case <-done:
+			if len(errs) > 0 {
+				return tableInfos, errs[0]
+			}
+			return tableInfos, nil
+		}
+	}
+}
+
+// queryTables queries the tables of the given database and returns a list of TableInfo
+func queryTables(server, database string, config Config) ([]TableInfo, error) {
+	var db *sql.DB
+	var err error
+	var query string
+
+	if config.DBType == "sqlite" {
+		db, err = sql.Open("sqlite3", server)
+		query = sqliteQueries["queryTables"]
+	} else {
+		connString := fmt.Sprintf("server=%s;user id=%s;password=%s;port=1433", server, config.User, config.Password)
+		db, err = sql.Open("mssql", connString)
+		query = fmt.Sprintf(sqlQueries["queryTables"], database, database)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
 
-	var results []TableInfo
-	for _, database := range config.Databases {
-		fmt.Printf("Database %s: \n", database)
-		tables, err := queryTables(db, database)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, tables...)
-	}
-
-	return results, nil
-}
-
-// queryTables queries the tables of the given database and returns a list of TableInfo
-func queryTables(db *sql.DB, database string) ([]TableInfo, error) {
-	query := fmt.Sprintf(sqlQueries["queryTables"], database, database)
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -97,32 +142,31 @@ func queryTables(db *sql.DB, database string) ([]TableInfo, error) {
 	var tables []TableInfo
 
 	for rows.Next() {
-		var dbn, schema, tableName, typen string
+		var tableName, typen string
 
-		if err := rows.Scan(&dbn, &schema, &tableName, &typen); err != nil {
+		if err := rows.Scan(&tableName, &typen); err != nil {
 			return nil, err
 		}
 
-		fmt.Printf("Database %s, Schema: %s, %s: %s \n", database, schema, typeMap[typen], tableName)
+		log.Printf("Database %s, %s: %s \n", database, typeMap[typen], tableName)
 
-		definition, err := queryViewDefinition(db, database, schema, tableName)
+		definition, err := queryViewDefinition(db, database, tableName, config)
 		if err != nil {
 			return nil, err
 		}
 
-		tablestruct, err := queryTableDefinition(db, database, schema, tableName)
+		tablestruct, err := queryTableDefinition(db, database, tableName, config)
 		if err != nil {
 			return nil, err
 		}
 
-		dependencies, err := queryTableDependencies(db, database, schema, tableName)
+		dependencies, err := queryTableDependencies(db, database, tableName, config)
 		if err != nil {
 			return nil, err
 		}
 
 		tables = append(tables, TableInfo{
 			Database:     database,
-			Schema:       schema,
 			TableName:    tableName,
 			Definition:   definition,
 			Columns:      tablestruct,
@@ -135,28 +179,50 @@ func queryTables(db *sql.DB, database string) ([]TableInfo, error) {
 }
 
 // queryTableDefinition queries the table definition of the given table and returns a list of Column
-func queryTableDefinition(db *sql.DB, database, schema, tableName string) ([]Column, error) {
-	query := fmt.Sprintf(sqlQueries["queryColumns"], database, database, schema, tableName)
+func queryTableDefinition(db *sql.DB, database, tableName string, config Config) ([]Column, error) {
+	var query string
+
+	if config.DBType == "sqlite" {
+		query = fmt.Sprintf(sqliteQueries["queryColumns"], tableName)
+	} else {
+		query = fmt.Sprintf(sqlQueries["queryColumns"], database, database, "", tableName)
+	}
 
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	var Columns []Column
+	var columns []Column
 	for rows.Next() {
 		var col Column
-		if err := rows.Scan(&col.Name, &col.Type_Name, &col.Max_Length, &col.Precision, &col.Scale, &col.Collation_Name, &col.Is_Nullable, &col.Is_Identity); err != nil {
-			return nil, err
+		if config.DBType == "sqlite" {
+			var cid, notnull, dfltValue, pk int
+			if err := rows.Scan(&cid, &col.Name, &col.Type_Name, &notnull, &dfltValue, &pk); err != nil {
+				return nil, err
+			}
+			col.Is_Nullable = notnull == 0
+		} else {
+			if err := rows.Scan(&col.Name, &col.Type_Name, &col.Max_Length, &col.Precision, &col.Scale, &col.Collation_Name, &col.Is_Nullable, &col.Is_Identity); err != nil {
+				return nil, err
+			}
 		}
-		Columns = append(Columns, col)
+		columns = append(columns, col)
 	}
-	return Columns, nil
+	return columns, nil
 }
 
 // queryViewDefinition queries the view definition of the given view and returns the definition as string
-func queryViewDefinition(db *sql.DB, database, schema, tableName string) (string, error) {
-	query := fmt.Sprintf(sqlQueries["queryViewDefinition"], database, database, schema, tableName)
+func queryViewDefinition(db *sql.DB, database, tableName string, config Config) (string, error) {
+	var query string
+
+	if config.DBType == "sqlite" {
+		query = fmt.Sprintf(sqliteQueries["queryViewDefinition"], tableName)
+	} else {
+		query = fmt.Sprintf(sqlQueries["queryViewDefinition"], database, database, "", tableName)
+	}
+
 	row := db.QueryRow(query)
 
 	var definition string
@@ -168,8 +234,15 @@ func queryViewDefinition(db *sql.DB, database, schema, tableName string) (string
 }
 
 // queryTableDependencies queries the dependencies of the given table and returns a list of Dependency
-func queryTableDependencies(db *sql.DB, database, schema, tableName string) ([]Dependency, error) {
-	query := fmt.Sprintf(sqlQueries["queryTableDependencies"], database, database, schema, tableName)
+func queryTableDependencies(db *sql.DB, database, tableName string, config Config) ([]Dependency, error) {
+	var query string
+
+	if config.DBType == "sqlite" {
+		query = sqliteQueries["queryTableDependencies"]
+	} else {
+		query = fmt.Sprintf(sqlQueries["queryTableDependencies"], database, database, "", tableName)
+	}
+
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
@@ -179,24 +252,11 @@ func queryTableDependencies(db *sql.DB, database, schema, tableName string) ([]D
 	var dependencies []Dependency
 
 	for rows.Next() {
-		var refDB, refSchema, refTable string
-		if err := rows.Scan(&refDB, &refSchema, &refTable); err != nil {
+		var dep Dependency
+		if err := rows.Scan(&dep.ReferencedDB, &dep.ReferencedSchema, &dep.ReferencedTable); err != nil {
 			return nil, err
 		}
-
-		// Filter out empty references (if any)
-		if refDB == "" {
-			refDB = database
-		}
-		if refSchema == "" || refTable == "" {
-			continue
-		}
-
-		dependencies = append(dependencies, Dependency{
-			ReferencedDB:     refDB,
-			ReferencedSchema: refSchema,
-			ReferencedTable:  refTable,
-		})
+		dependencies = append(dependencies, dep)
 	}
 
 	return dependencies, nil

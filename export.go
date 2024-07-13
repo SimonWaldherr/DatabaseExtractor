@@ -2,9 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"regexp"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -16,7 +18,7 @@ func cleanFn(str string) string {
 // createDirectory creates a directory if it doesn't exist.
 func createDirectory(dir string) {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
-		fmt.Println("creating", dir, "dir.")
+		log.Println("creating", dir, "dir.")
 		os.MkdirAll(dir, 0777)
 	}
 }
@@ -29,13 +31,13 @@ func writeSQLFile(dir string, view TableInfo) {
 		if len(view.Definition) > 10 {
 			err = os.WriteFile(dir+view.TableName+".sql", []byte(view.Definition), 0644)
 			if err != nil {
-				fmt.Println("Error writing SQL file:", err)
+				log.Println("Error writing SQL file:", err)
 			}
 		}
 		if len(infofile) > 10 {
 			err = os.WriteFile(dir+view.TableName+".info.md", []byte(infofile), 0644)
 			if err != nil {
-				fmt.Println("Error writing info file:", err)
+				log.Println("Error writing info file:", err)
 			}
 		}
 	} else if len(view.Database) > 1 {
@@ -43,7 +45,7 @@ func writeSQLFile(dir string, view TableInfo) {
 		if len(infofile) > 10 {
 			err := os.WriteFile(dir+cleanFn(view.TableName)+".info.md", []byte(infofile), 0644)
 			if err != nil {
-				fmt.Println("Error writing info file:", err)
+				log.Println("Error writing info file:", err)
 			}
 		}
 	}
@@ -51,7 +53,7 @@ func writeSQLFile(dir string, view TableInfo) {
 	if len(structFile) > 10 {
 		err = os.WriteFile(dir+view.TableName+".go", []byte(structFile), 0644)
 		if err != nil {
-			fmt.Println("Error writing Go struct file:", err)
+			log.Println("Error writing Go struct file:", err)
 		}
 	}
 }
@@ -150,10 +152,10 @@ func mapSQLTypeToGoType(sqlType string) string {
 }
 
 // exportToFiles exports the given list of TableInfo to files.
-func exportToFiles(j []TableInfo) error {
+func exportToFiles(j []TableInfo, templateFile string) error {
 	workingDir, err := os.Getwd()
 	if err != nil {
-		fmt.Printf("Fehler beim Ermitteln des aktuellen Verzeichnisses: %v\n", err)
+		log.Printf("Fehler beim Ermitteln des aktuellen Verzeichnisses: %v\n", err)
 		return err
 	}
 
@@ -164,6 +166,27 @@ func exportToFiles(j []TableInfo) error {
 		}
 		createDirectory(dir)
 		writeSQLFile(dir, view)
+
+		if templateFile != "" {
+			err := exportCustomFormat(view, templateFile, dir+view.TableName+".tmpl")
+			if err != nil {
+				log.Printf("Error exporting custom format: %v", err)
+			}
+		}
 	}
 	return nil
+}
+
+// exportCustomFormat exports a table/view structure based on a custom template.
+func exportCustomFormat(table TableInfo, templateFile string, outputFile string) error {
+	tmpl, err := template.ParseFiles(templateFile)
+	if err != nil {
+		return err
+	}
+	file, err := os.Create(outputFile)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	return tmpl.Execute(file, table)
 }

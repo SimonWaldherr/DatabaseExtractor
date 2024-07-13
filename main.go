@@ -15,13 +15,17 @@ type Config struct {
 	Server    string   `yaml:"server"`
 	User      string   `yaml:"user"`
 	Password  string   `yaml:"password"`
+	DBType    string   `yaml:"dbtype"`
 	Databases []string `yaml:"databases"`
+	IncludeTables []string `yaml:"include_tables"`
+	ExcludeTables []string `yaml:"exclude_tables"`
 }
 
 func main() {
 	configFile := flag.String("config", "config.yaml", "Path to configuration file")
 	outputType := flag.String("output", "debug", "output type [json,xml,files,debug]")
 	useCached := flag.Bool("cached", false, "use cached data")
+	templateFile := flag.String("template", "", "Path to custom template file")
 	flag.Parse()
 
 	config, err := loadConfig(*configFile)
@@ -43,6 +47,9 @@ func main() {
 		log.Fatalf("Error querying databases: %v", err)
 	}
 
+	// Filter data based on include/exclude lists
+	data = filterData(data, config.IncludeTables, config.ExcludeTables)
+
 	switch *outputType {
 	case "json":
 		if err = writeToFile("data.json", data, json.Marshal); err != nil {
@@ -53,7 +60,7 @@ func main() {
 			log.Printf("Error writing XML file: %v", err)
 		}
 	case "files":
-		if err = exportToFiles(data); err != nil {
+		if err = exportToFiles(data, *templateFile); err != nil {
 			log.Printf("Error writing files: %v", err)
 		}
 	case "debug":
@@ -61,6 +68,30 @@ func main() {
 	default:
 		log.Printf("Unknown output type: %s", *outputType)
 	}
+}
+
+// filterData filters the TableInfo data based on include and exclude lists
+func filterData(data []TableInfo, includeTables, excludeTables []string) []TableInfo {
+	includes := make(map[string]bool)
+	for _, table := range includeTables {
+		includes[table] = true
+	}
+	excludes := make(map[string]bool)
+	for _, table := range excludeTables {
+		excludes[table] = true
+	}
+
+	var filteredData []TableInfo
+	for _, table := range data {
+		if len(includes) > 0 && !includes[table.TableName] {
+			continue
+		}
+		if excludes[table.TableName] {
+			continue
+		}
+		filteredData = append(filteredData, table)
+	}
+	return filteredData
 }
 
 // parseCachedData parses cached data from json file to TableInfo slice
