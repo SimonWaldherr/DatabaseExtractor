@@ -1,4 +1,7 @@
 # Database Extractor
+
+[![DOI](https://zenodo.org/badge/798329072.svg)](https://zenodo.org/doi/10.5281/zenodo.13647590)  
+
 ## a Database Structure and Query Export Tool
 
 This is a Go application designed to query tables, views, and their dependencies from a Microsoft SQL Server database and export the retrieved structure data into various formats such as JSON, XML, and markdown files.
