@@ -114,7 +114,7 @@ return nil, err
 }
 
 // Normalise dialect-specific type strings to the shared typeMap keys.
-normType := dialect.NormaliseType(typen)
+normType := dialect.NormalizeType(typen)
 fmt.Printf("Database %s, Schema: %s, %s: %s \n", database, schema, typeMap[normType], tableName)
 
 definition, err := queryViewDefinition(db, dialect, database, schema, tableName)

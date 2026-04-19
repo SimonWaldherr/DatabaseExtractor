@@ -20,9 +20,9 @@ NeedsPerDBConn() bool
 // QueryTablesSQL returns a SQL statement and bind arguments that yield
 // four columns: catalog, schema, name, type for every table/view/routine.
 QueryTablesSQL(database string) (string, []interface{})
-// NormaliseType maps the raw type string returned by the DBMS to one of
+// NormalizeType maps the raw type string returned by the DBMS to one of
 // the keys understood by typeMap in database.go.
-NormaliseType(raw string) string
+NormalizeType(raw string) string
 
 // QueryColumnsSQL returns a SQL statement and bind arguments for the
 // column metadata of a specific object.
@@ -113,7 +113,7 @@ qdb, qdb)
 return q, nil
 }
 
-func (mssqlDialect) NormaliseType(raw string) string { return raw }
+func (mssqlDialect) NormalizeType(raw string) string { return raw }
 
 func (mssqlDialect) QueryColumnsSQL(database, schema, table string) (string, []interface{}) {
 qdb := quoteMSSQL(database)
@@ -201,7 +201,7 @@ q := "SELECT TABLE_SCHEMA, TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE " +
 return q, []interface{}{database, database}
 }
 
-func (mysqlDialect) NormaliseType(raw string) string { return raw }
+func (mysqlDialect) NormalizeType(raw string) string { return raw }
 
 func (mysqlDialect) QueryColumnsSQL(database, _, table string) (string, []interface{}) {
 q := "SELECT COLUMN_NAME, DATA_TYPE, " +
@@ -287,7 +287,7 @@ q := "SELECT table_catalog, table_schema, table_name, table_type " +
 return q, nil
 }
 
-func (postgresDialect) NormaliseType(raw string) string { return raw }
+func (postgresDialect) NormalizeType(raw string) string { return raw }
 
 func (postgresDialect) QueryColumnsSQL(_, schema, table string) (string, []interface{}) {
 q := "SELECT column_name, data_type, " +
@@ -369,8 +369,8 @@ q := "SELECT '' as catalog, '' as schema_name, name, type " +
 return q, nil
 }
 
-// NormaliseType maps SQLite's lowercase type names to the shared typeMap keys.
-func (sqliteDialect) NormaliseType(raw string) string {
+// NormalizeType maps SQLite's lowercase type names to the shared typeMap keys.
+func (sqliteDialect) NormalizeType(raw string) string {
 switch strings.ToUpper(raw) {
 case "TABLE":
 return "BASE TABLE"
