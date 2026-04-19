@@ -1,4 +1,6 @@
+driver: "mssql"
 server: "mssql.example.tld"
+port: 1433
 user: "john.doe"
 password: "$ecret£assw⌀rd"
 databases:

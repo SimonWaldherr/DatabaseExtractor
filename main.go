@@ -12,7 +12,9 @@ import (
 
 // Config structure for database configurations
 type Config struct {
+	Driver    string   `yaml:"driver"`
 	Server    string   `yaml:"server"`
+	Port      int      `yaml:"port"`
 	User      string   `yaml:"user"`
 	Password  string   `yaml:"password"`
 	Databases []string `yaml:"databases"`
