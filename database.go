@@ -97,7 +97,8 @@ return results, nil
 
 // queryTables queries the tables of the given database and returns a list of TableInfo
 func queryTables(db *sql.DB, dialect Dialect, database string) ([]TableInfo, error) {
-rows, err := db.Query(dialect.QueryTablesSQL(database))
+q, args := dialect.QueryTablesSQL(database)
+	rows, err := db.Query(q, args...)
 if err != nil {
 return nil, err
 }
@@ -148,61 +149,61 @@ return tables, nil
 // queryTableDefinition queries the column metadata for the given object and
 // returns a list of Column using the dialect's scanner.
 func queryTableDefinition(db *sql.DB, dialect Dialect, database, schema, tableName string) ([]Column, error) {
-query := dialect.QueryColumnsSQL(database, schema, tableName)
+	query, args := dialect.QueryColumnsSQL(database, schema, tableName)
 
-rows, err := db.Query(query)
-if err != nil {
-return nil, err
-}
-defer rows.Close()
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-var columns []Column
-for rows.Next() {
-col, err := dialect.ScanColumnRow(rows)
-if err != nil {
-return nil, err
-}
-columns = append(columns, col)
-}
-return columns, nil
+	var columns []Column
+	for rows.Next() {
+		col, err := dialect.ScanColumnRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		columns = append(columns, col)
+	}
+	return columns, nil
 }
 
 // queryViewDefinition queries the DDL/body of the given object and returns it
 // as a string (empty for plain tables).
 func queryViewDefinition(db *sql.DB, dialect Dialect, database, schema, tableName string) (string, error) {
-query := dialect.QueryViewDefinitionSQL(database, schema, tableName)
-row := db.QueryRow(query)
-return dialect.ScanViewDefinition(row)
+	query, args := dialect.QueryViewDefinitionSQL(database, schema, tableName)
+	row := db.QueryRow(query, args...)
+	return dialect.ScanViewDefinition(row)
 }
 
 // queryTableDependencies queries the foreign-key dependencies of the given
 // object and returns a list of Dependency using the dialect's scanner.
 func queryTableDependencies(db *sql.DB, dialect Dialect, database, schema, tableName string) ([]Dependency, error) {
-query := dialect.QueryDependenciesSQL(database, schema, tableName)
-rows, err := db.Query(query)
-if err != nil {
-return nil, err
-}
-defer rows.Close()
+	query, args := dialect.QueryDependenciesSQL(database, schema, tableName)
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-var dependencies []Dependency
+	var dependencies []Dependency
 
-for rows.Next() {
-dep, err := dialect.ScanDependencyRow(rows)
-if err != nil {
-return nil, err
-}
+	for rows.Next() {
+		dep, err := dialect.ScanDependencyRow(rows)
+		if err != nil {
+			return nil, err
+		}
 
-// Fill in the current database when the reference omits it.
-if dep.ReferencedDB == "" {
-dep.ReferencedDB = database
-}
-if dep.ReferencedSchema == "" || dep.ReferencedTable == "" {
-continue
-}
+		// Fill in the current database when the reference omits it.
+		if dep.ReferencedDB == "" {
+			dep.ReferencedDB = database
+		}
+		if dep.ReferencedSchema == "" || dep.ReferencedTable == "" {
+			continue
+		}
 
-dependencies = append(dependencies, dep)
-}
+		dependencies = append(dependencies, dep)
+	}
 
-return dependencies, nil
+	return dependencies, nil
 }
